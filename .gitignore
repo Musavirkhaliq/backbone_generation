@@ -88,3 +88,7 @@ data/
 *.h5
 *.hdf5
 *.hdf
+/data/*
+/*.csv
+/*.json
+
