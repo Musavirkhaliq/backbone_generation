@@ -79,7 +79,7 @@ static/
 
 # igone data
 data/
-.tar.gz
+*.tar.gz
 *.csv
 *.json
 *.pkl
@@ -91,5 +91,6 @@ data/
 /data/*
 /*.csv
 /*.json
+cifar-10-python.tar.gz
 cifar-10-batches-py/
 output/
