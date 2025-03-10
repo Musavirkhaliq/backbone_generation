@@ -92,3 +92,4 @@ data/
 /*.csv
 /*.json
 cifar-10-batches-py/
+output/
