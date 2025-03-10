@@ -5,25 +5,17 @@ from torch import Tensor
 from torch_geometric.nn import MessagePassing
 from torch_geometric.typing import Adj, OptTensor
 from typing import Optional, Tuple
+from torch_scatter import scatter
 
 class EGNNLayer(MessagePassing):
     """
-    Enhanced Equivariant Graph Neural Network Layer.
+    Equivariant Graph Neural Network Layer.
     
     Implements E(n) equivariant message passing with:
     - Coordinate normalization
     - Edge attributes support
     - Residual connections
     - Layer normalization
-    - Configurable activation functions
-    
-    Args:
-        node_dim: Dimension of node features
-        edge_dim: Dimension of edge features
-        hidden_dim: Dimension of hidden layers
-        activation: Activation function (default: SiLU)
-        aggr: Aggregation method (default: 'mean')
-        use_layer_norm: Whether to use layer normalization
     """
     def __init__(
         self,
@@ -34,7 +26,8 @@ class EGNNLayer(MessagePassing):
         aggr: str = 'mean',
         use_layer_norm: bool = True
     ):
-        super().__init__(aggr=aggr)
+        # Important: Set node_dim=0 for MessagePassing
+        super().__init__(aggr=aggr, node_dim=0)
         
         self.node_dim = node_dim
         self.edge_dim = edge_dim
@@ -87,8 +80,8 @@ class EGNNLayer(MessagePassing):
         pos_std = pos.std(dim=0, keepdim=True).clamp(min=1e-8)
         pos_normalized = (pos - pos_mean) / pos_std
         
-        # Compute messages and updates
-        out = self.propagate(edge_index, x=x, pos=pos_normalized, edge_attr=edge_attr)
+        # Compute messages and updates for node features
+        out = self.propagate(edge_index, x=x, pos=pos_normalized, edge_attr=edge_attr, update_coords=False)
         
         # Update node features with residual connection
         if self.layer_norm is not None:
@@ -148,14 +141,15 @@ class EGNNLayer(MessagePassing):
         self,
         inputs: Tensor,
         index: Tensor,
-        update_coords: bool = False,
-        **kwargs
+        ptr: Optional[Tensor] = None,
+        dim_size: Optional[int] = None,
+        update_coords: bool = False
     ) -> Tensor:
         """Aggregate messages from neighbors."""
         # Use different aggregation for coordinate updates
         if update_coords:
-            return scatter(inputs, index, dim=0, dim_size=kwargs.get('size')[1], reduce='sum')
-        return scatter(inputs, index, dim=0, dim_size=kwargs.get('size')[1], reduce=self.aggr)
+            return scatter(inputs, index, dim=self.node_dim, dim_size=dim_size, reduce='sum')
+        return scatter(inputs, index, dim=self.node_dim, dim_size=dim_size, reduce=self.aggr)
 
 class EGNN(nn.Module):
     """

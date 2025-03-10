@@ -1,14 +1,17 @@
+# Molecule reconstruction involves two steps: predicting a feature vector for each atom, and predicting molecular bonds for each pair of atoms.
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Tuple, Optional
 import numpy as np
+from models.en_gnn import EGNN
 
 class NoiseScheduler:
     """
     Noise scheduler for diffusion process with support for various schedules.
     
-    Args:
+    Args:   
         timesteps: Number of diffusion timesteps
         schedule: Type of beta schedule ('linear', 'cosine', or 'quadratic')
         beta_start: Starting beta value
@@ -124,33 +127,48 @@ class DiffusionModel(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass predicting noise in the diffusion process.
-        
+
         Args:
             x: Node features [num_nodes, node_dim]
             pos: Node positions [num_nodes, 3]
             edge_index: Graph connectivity [2, num_edges]
             edge_attr: Optional edge features [num_edges, edge_dim]
             t: Timesteps [batch_size]
-            
+
         Returns:
             Predicted noise and noisy positions
         """
         # Sample timesteps if not provided
-        if t is None:
-            t = torch.randint(0, self.timesteps, (pos.shape[0],), device=pos.device)
+        batch_size = 1
+        if hasattr(pos, 'batch'):
+            batch_size = int(pos.batch.max()) + 1
             
+        if t is None:
+            t = torch.randint(0, self.timesteps, (batch_size,), device=pos.device)
+
         # Add noise according to schedule
         noise = torch.randn_like(pos) * self.noise_scale
-        noisy_pos = self.noise_scheduler.q_sample(pos, t, noise)
-        
+        noisy_pos = self.noise_scheduler.q_sample(pos, t[pos.batch] if hasattr(pos, 'batch') else t, noise)
+
         # Prepare time embeddings
         if self.use_time_embedding:
-            time_emb = self.get_time_embedding(t)
-            x = torch.cat([x, time_emb.repeat_interleave(x.size(0) // t.size(0), 0)], dim=-1)
-        
+            # Get time embeddings
+            time_emb = self.get_time_embedding(t)  # [batch_size, hidden_dim]
+            
+            # Repeat time embeddings for each node in the corresponding graph
+            if hasattr(pos, 'batch'):
+                # When using PyG's DataLoader, use the batch attribute
+                time_emb = time_emb[pos.batch]  # [num_nodes, hidden_dim]
+            else:
+                # Fallback for single graphs or other cases
+                time_emb = time_emb.repeat(pos.size(0), 1)  # [num_nodes, hidden_dim]
+            
+            # Concatenate node features with time embeddings
+            x = torch.cat([x, time_emb], dim=-1)
+
         # Predict noise using EGNN
         _, pred_noise = self.egnn(x, noisy_pos, edge_index, edge_attr)
-        
+
         return pred_noise, noisy_pos
     
     def sample(
@@ -185,7 +203,7 @@ class DiffusionModel(nn.Module):
         
         # Gradually denoise
         for t in reversed(range(num_steps)):
-            t_batch = torch.full((x.size(0),), t, device=device, dtype=torch.long)
+            t_batch = torch.full((1,), t, device=device, dtype=torch.long)
             
             # Get noise prediction
             with torch.no_grad():
