@@ -76,3 +76,15 @@ static/
 .env
 .env.local
 .env.*.local 
+
+# igone data
+data/
+.tar.gz
+*.csv
+*.json
+*.pkl
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.hdf
